@@ -168,14 +168,14 @@ struct ContentView: View {
                 VStack {
                     GeometryReader { geometry in
                         if let geoJson = geoJson {
-                            ZoomableScrollView {
-                                ZStack {
-                                    ForEach(geoJson.features, id: \.id) { feature in
-                                        if let polygons = feature.geometry.coordinates.polygon, feature.geometry.type == "Polygon" {
-                                            renderPolygons(polygons, feature: feature, geometry: geometry)
-                                        } else if let multiPolygons = feature.geometry.coordinates.multiPolygon, feature.geometry.type == "MultiPolygon" {
-                                            renderMultiPolygons(multiPolygons, feature: feature, geometry: geometry)
-                                        }
+                            ZStack {
+                                ForEach(geoJson.features, id: \.id) { feature in
+                                    if let polygons = feature.geometry.coordinates.polygon, feature.geometry.type == "Polygon" {
+                                        renderPolygons(polygons, feature: feature, geometry: geometry)
+                                            .animation(.easeInOut(duration: 0.5), value: highlightedCountry)
+                                    } else if let multiPolygons = feature.geometry.coordinates.multiPolygon, feature.geometry.type == "MultiPolygon" {
+                                        renderMultiPolygons(multiPolygons, feature: feature, geometry: geometry)
+                                            .animation(.easeInOut(duration: 0.5), value: highlightedCountry)
                                     }
                                 }
                             }
@@ -261,6 +261,11 @@ struct ContentView: View {
         if name == secretCountry && gameWon {
             return Color.green
         } else if name == highlightedCountry {
+            if let distance = distance, !distance.isNaN {
+                // Mesafeye göre renk değişimi
+                let normalizedDistance = min(max(distance / 10000, 0), 1)
+                return Color(red: 1, green: normalizedDistance, blue: 0)
+            }
             return Color.red
         } else {
             return Color.blue.opacity(0.3)
@@ -291,19 +296,32 @@ struct ContentView: View {
         let dLon = lon2 - lon1
         
         let a = sin(dLat/2) * sin(dLat/2) + cos(lat1) * cos(lat2) * sin(dLon/2) * sin(dLon/2)
-        let c = 2 * atan2(sqrt(a), sqrt(1-a))
+        let c = 2 * atan2(sqrt(max(0, min(1, a))), sqrt(max(0, min(1, 1-a))))
         
-        return earthRadius * c
+        let distance = earthRadius * c
+        return distance.isNaN ? 0 : distance
     }
     
     private func zoomToCountry(_ countryName: String) {
         guard let country = geoJson?.features.first(where: { $0.countryName?.trimmed().capitalized == countryName }),
-              let center = country.center else {
+              let center = country.center,
+              !center.latitude.isNaN && !center.longitude.isNaN else {
             return
         }
         
-        // Implement zooming logic here
-        print("Zooming to country: \(countryName) at \(center)")
+        // Zoom animasyonu
+        withAnimation(.spring()) {
+            scale = 2.0
+            offset = CGSize(width: -center.longitude * 2, height: center.latitude * 2)
+        }
+        
+        // 2 saniye sonra zoom'u sıfırla
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            withAnimation(.spring()) {
+                scale = 1.0
+                offset = .zero
+            }
+        }
     }
     
     private func restartGame() {
@@ -351,15 +369,4 @@ struct PolygonShape: Shape {
     }
 }
 
-struct ZoomableScrollView<Content: View>: View {
-    let content: Content
-    
-    init(@ViewBuilder content: () -> Content) {
-        self.content = content()
-    }
-    
-    var body: some View {
-        content
-    }
-}
 
