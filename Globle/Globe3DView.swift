@@ -34,7 +34,7 @@ struct Globe3DView: UIViewRepresentable {
         material.diffuse.contents = UIImage(named: "earth.jpg") // Earth texture
         material.diffuse.wrapS = .repeat
         material.diffuse.wrapT = .repeat
-        material.diffuse.contentsTransform = SCNMatrix4MakeTranslation(-0.26, 0, 0) // Adjust texture offset
+        material.diffuse.contentsTransform = SCNMatrix4MakeTranslation(-0.249, 0, 0) // Adjust texture offset
         material.specular.contents = UIColor.white
         material.shininess = 0.1
         material.lightingModel = .blinn
@@ -69,124 +69,173 @@ struct Globe3DView: UIViewRepresentable {
 
             guard points.count > 2 else { continue }
 
-            // Create line geometry for borders
-            let geometry = SCNGeometry.lineGeometry(points: points)
-            let borderMaterial = SCNMaterial()
-            borderMaterial.diffuse.contents = UIColor.black
-            borderMaterial.transparency = 0.8
-            geometry.materials = [borderMaterial]
-
-            let countryNode = SCNNode(geometry: geometry)
-            countryNode.name = feature.countryName
-
-            // Create fill geometry for highlighted state
+            // Create fill geometry first (will be rendered behind the border)
             if let fillGeometry = createFillGeometry(from: points) {
                 let fillMaterial = SCNMaterial()
                 fillMaterial.diffuse.contents = UIColor.clear
                 fillMaterial.isDoubleSided = true
                 fillMaterial.cullMode = .back
+                // Add ambient occlusion to improve depth perception
+                fillMaterial.ambient.contents = UIColor.black
+                fillMaterial.ambient.intensity = 0.5
                 fillGeometry.materials = [fillMaterial]
 
                 let fillNode = SCNNode(geometry: fillGeometry)
                 fillNode.name = "\(feature.countryName ?? "")-fill"
-
+                
+                // Add a slight offset to prevent z-fighting
+                fillNode.renderingOrder = 1
                 node.addChildNode(fillNode)
             }
 
-            node.addChildNode(countryNode)
+            // Create thicker border geometry with better blending
+            let borderGeometry = createBorderGeometry(from: points)
+            let borderMaterial = SCNMaterial()
+            borderMaterial.diffuse.contents = UIColor.red.withAlphaComponent(0.3) // Semi-transparent border
+            borderMaterial.isDoubleSided = true
+            borderMaterial.transparency = 0.7
+            // Enable smooth blending
+            borderMaterial.blendMode = .alpha
+            borderMaterial.writesToDepthBuffer = true
+            borderMaterial.readsFromDepthBuffer = true
+            borderGeometry.materials = [borderMaterial]
+
+            let borderNode = SCNNode(geometry: borderGeometry)
+            borderNode.name = feature.countryName
+            // Render borders on top of fill
+            borderNode.renderingOrder = 2
+            node.addChildNode(borderNode)
         }
     }
 
     private func createFillGeometry(from points: [SCNVector3]) -> SCNGeometry? {
         guard points.count >= 3 else { return nil }
-
-        // Create a denser set of points for large areas
-        let densePoints = subdivideLargePolygon(points)
-
-        // Create vertices and normals
-        var vertices: [SCNVector3] = []
-        var normals: [SCNVector3] = []
-        var indices: [Int32] = []
-
-        // Calculate centroid
+        
+        // Merkez noktayı hesapla
         var centerX: Float = 0, centerY: Float = 0, centerZ: Float = 0
-        for point in densePoints {
+        for point in points {
             centerX += point.x
             centerY += point.y
             centerZ += point.z
         }
-        let count = Float(densePoints.count)
-        let centroid = SCNVector3(centerX / count, centerY / count, centerZ / count)
-
-        // Project centroid to sphere surface
-        let length = sqrt(centroid.x * centroid.x + centroid.y * centroid.y + centroid.z * centroid.z)
-        let normalizedCentroid = SCNVector3(
-            centroid.x / length * 5.02,
-            centroid.y / length * 5.02,
-            centroid.z / length * 5.02
+        let count = Float(points.count)
+        let centroid = SCNVector3(
+            centerX / count,
+            centerY / count,
+            centerZ / count
         )
-
-        // Add centroid as first vertex
-        vertices.append(normalizedCentroid)
-        normals.append(normalizeVector(normalizedCentroid))
-
-        // Add boundary points
-        for point in densePoints {
-            vertices.append(point)
-            normals.append(normalizeVector(point))
+        
+        // Merkezi küre yüzeyine yansıt
+        let length = sqrt(centroid.x * centroid.x + centroid.y * centroid.y + centroid.z * centroid.z)
+        let radius: Float = 5.02
+        let normalizedCentroid = SCNVector3(
+            centroid.x / length * radius,
+            centroid.y / length * radius,
+            centroid.z / length * radius
+        )
+        
+        var vertices: [SCNVector3] = []
+        var normals: [SCNVector3] = []
+        var indices: [Int32] = []
+        
+        // Recursive subdivision için yardımcı fonksiyon
+        func subdivideTriangle(_ v1: SCNVector3, _ v2: SCNVector3, _ v3: SCNVector3, depth: Int) {
+            if depth == 0 {
+                let index = Int32(vertices.count)
+                vertices.append(v1)
+                vertices.append(v2)
+                vertices.append(v3)
+                
+                let normal1 = normalizeVector(v1)
+                let normal2 = normalizeVector(v2)
+                let normal3 = normalizeVector(v3)
+                normals.append(normal1)
+                normals.append(normal2)
+                normals.append(normal3)
+                
+                indices.append(index)
+                indices.append(index + 1)
+                indices.append(index + 2)
+                return
+            }
+            
+            // Kenar orta noktalarını hesapla ve küre yüzeyine yansıt
+            func midpoint(_ p1: SCNVector3, _ p2: SCNVector3) -> SCNVector3 {
+                let mid = SCNVector3(
+                    (p1.x + p2.x) / 2,
+                    (p1.y + p2.y) / 2,
+                    (p1.z + p2.z) / 2
+                )
+                let len = sqrt(mid.x * mid.x + mid.y * mid.y + mid.z * mid.z)
+                return SCNVector3(
+                    mid.x / len * radius,
+                    mid.y / len * radius,
+                    mid.z / len * radius
+                )
+            }
+            
+            let v12 = midpoint(v1, v2)
+            let v23 = midpoint(v2, v3)
+            let v31 = midpoint(v3, v1)
+            
+            subdivideTriangle(v1, v12, v31, depth: depth - 1)
+            subdivideTriangle(v2, v23, v12, depth: depth - 1)
+            subdivideTriangle(v3, v31, v23, depth: depth - 1)
+            subdivideTriangle(v12, v23, v31, depth: depth - 1)
         }
-
-        // Create triangles
-        for i in 0..<densePoints.count {
-            indices.append(0) // Centroid
-            indices.append(Int32(i + 1))
-            indices.append(Int32((i + 1) % densePoints.count + 1))
+        
+        // Poligonu üçgenlere böl
+        let densePoints = subdivideLargePolygon(points)
+        for i in 1..<(densePoints.count - 1) {
+            let maxDepth = 2 // Recursive subdivision derinliği
+            subdivideTriangle(normalizedCentroid, densePoints[i], densePoints[i + 1], depth: maxDepth)
         }
-
+        
         let vertexSource = SCNGeometrySource(vertices: vertices)
         let normalSource = SCNGeometrySource(normals: normals)
         let element = SCNGeometryElement(indices: indices, primitiveType: .triangles)
-
+        
         return SCNGeometry(sources: [vertexSource, normalSource], elements: [element])
     }
 
     private func subdivideLargePolygon(_ points: [SCNVector3]) -> [SCNVector3] {
         var result: [SCNVector3] = []
-
+        let radius: Float = 5.02
+        
         for i in 0..<points.count {
             let p1 = points[i]
             let p2 = points[(i + 1) % points.count]
-
-            // Calculate distance between points
-            let dx = p2.x - p1.x
-            let dy = p2.y - p1.y
-            let dz = p2.z - p1.z
-            let distance = sqrt(dx * dx + dy * dy + dz * dz)
-
-            // Add first point
+            
             result.append(p1)
-
-            // Subdivide if distance is large
-            if distance > 0.5 { // Adjust this threshold as needed
-                let subdivisions = Int(distance * 10) // Adjust multiplication factor as needed
+            
+            // İki nokta arasındaki büyük daire mesafesini hesapla
+            let dot = (p1.x * p2.x + p1.y * p2.y + p1.z * p2.z) / (radius * radius)
+            let angle = acos(min(1, max(-1, dot)))
+            
+            if angle > 0.05 { // Daha küçük açı eşiği
+                let subdivisions = Int(angle * 40) // Daha fazla alt bölüm
+                
                 for j in 1..<subdivisions {
                     let t = Float(j) / Float(subdivisions)
-                    let x = p1.x + dx * t
-                    let y = p1.y + dy * t
-                    let z = p1.z + dz * t
-
-                    // Project intermediate point to sphere surface
+                    let sphericalT = sin((1 - t) * angle) / sin(angle)
+                    let sphericalT2 = sin(t * angle) / sin(angle)
+                    
+                    let x = sphericalT * p1.x + sphericalT2 * p2.x
+                    let y = sphericalT * p1.y + sphericalT2 * p2.y
+                    let z = sphericalT * p1.z + sphericalT2 * p2.z
+                    
                     let length = sqrt(x * x + y * y + z * z)
                     let point = SCNVector3(
-                        x / length * 5.02,
-                        y / length * 5.02,
-                        z / length * 5.02
+                        x / length * radius,
+                        y / length * radius,
+                        z / length * radius
                     )
+                    
                     result.append(point)
                 }
             }
         }
-
+        
         return result
     }
 
@@ -195,20 +244,103 @@ struct Globe3DView: UIViewRepresentable {
         return SCNVector3(v.x / length, v.y / length, v.z / length)
     }
 
-    private func projectToSphere(latitude: Double, longitude: Double) -> SCNVector3? {
-        let radius: Float = 5.02
+    private func projectToSphere(latitude: Double, longitude: Double) -> SCNVector3 {
+        let radius: Float = 5.02 // Update from 5.0 to ensure consistent sphere radius
         let phi = Float((90 - latitude) * .pi / 180)
         let theta = Float((longitude + 180) * .pi / 180)
-
-        guard !phi.isNaN && !theta.isNaN else { return nil }
 
         let x = -radius * sin(phi) * cos(theta)
         let y = radius * cos(phi)
         let z = radius * sin(phi) * sin(theta)
 
-        guard !x.isNaN && !y.isNaN && !z.isNaN else { return nil }
-
         return SCNVector3(x, y, z)
+    }
+
+    private func createBorderGeometry(from points: [SCNVector3]) -> SCNGeometry {
+        var vertices: [SCNVector3] = []
+        var indices: [Int32] = []
+        let borderWidth: Float = 0.02 // Adjust border thickness
+        
+        for i in 0..<points.count {
+            let p1 = points[i]
+            let p2 = points[(i + 1) % points.count]
+            
+            // Calculate perpendicular vector for border width
+            let direction = SCNVector3(
+                p2.x - p1.x,
+                p2.y - p1.y,
+                p2.z - p1.z
+            )
+            let up = normalizeVector(p1) // Use surface normal as up vector
+            let right = crossProduct(direction, up)
+            let normalizedRight = normalizeVector(right)
+            
+            // Create four vertices for each border segment
+            let v1 = SCNVector3(
+                p1.x + normalizedRight.x * borderWidth,
+                p1.y + normalizedRight.y * borderWidth,
+                p1.z + normalizedRight.z * borderWidth
+            )
+            let v2 = SCNVector3(
+                p1.x - normalizedRight.x * borderWidth,
+                p1.y - normalizedRight.y * borderWidth,
+                p1.z - normalizedRight.z * borderWidth
+            )
+            let v3 = SCNVector3(
+                p2.x + normalizedRight.x * borderWidth,
+                p2.y + normalizedRight.y * borderWidth,
+                p2.z + normalizedRight.z * borderWidth
+            )
+            let v4 = SCNVector3(
+                p2.x - normalizedRight.x * borderWidth,
+                p2.y - normalizedRight.y * borderWidth,
+                p2.z - normalizedRight.z * borderWidth
+            )
+            
+            // Project vertices to sphere surface
+            let radius: Float = 5.02
+            func projectToSphere(_ v: SCNVector3) -> SCNVector3 {
+                let length = sqrt(v.x * v.x + v.y * v.y + v.z * v.z)
+                return SCNVector3(
+                    v.x / length * radius,
+                    v.y / length * radius,
+                    v.z / length * radius
+                )
+            }
+            
+            let pv1 = projectToSphere(v1)
+            let pv2 = projectToSphere(v2)
+            let pv3 = projectToSphere(v3)
+            let pv4 = projectToSphere(v4)
+            
+            let baseIndex = Int32(vertices.count)
+            vertices.append(pv1)
+            vertices.append(pv2)
+            vertices.append(pv3)
+            vertices.append(pv4)
+            
+            // Create two triangles for the border segment
+            indices.append(baseIndex)
+            indices.append(baseIndex + 1)
+            indices.append(baseIndex + 2)
+            
+            indices.append(baseIndex + 1)
+            indices.append(baseIndex + 3)
+            indices.append(baseIndex + 2)
+        }
+        
+        let vertexSource = SCNGeometrySource(vertices: vertices)
+        let element = SCNGeometryElement(indices: indices, primitiveType: .triangles)
+        
+        return SCNGeometry(sources: [vertexSource], elements: [element])
+    }
+
+    private func crossProduct(_ v1: SCNVector3, _ v2: SCNVector3) -> SCNVector3 {
+        return SCNVector3(
+            v1.y * v2.z - v1.z * v2.y,
+            v1.z * v2.x - v1.x * v2.z,
+            v1.x * v2.y - v1.y * v2.x
+        )
     }
 
     private func updateHighlightedCountry(in sceneView: SCNView) {
@@ -216,10 +348,27 @@ struct Globe3DView: UIViewRepresentable {
             if node.name?.contains("-fill") == true {
                 let countryName = node.name?.replacingOccurrences(of: "-fill", with: "")
                 if countryName == highlightedCountry {
+                    // Ana dolgu rengi
                     node.geometry?.firstMaterial?.diffuse.contents = UIColor.red
                     node.geometry?.firstMaterial?.transparency = 0.8
+                    
+                    // Kenar çizgileri için material ayarları
+                    let borderMaterial = SCNMaterial()
+                    borderMaterial.diffuse.contents = UIColor.red
+                    borderMaterial.transparency = 0.9
+                    borderMaterial.blendMode = .alpha
+                    
+                    // Kenar node'unu bul ve güncelle
+                    if let borderNode = sceneView.scene?.rootNode.childNode(withName: countryName ?? "", recursively: true) {
+                        borderNode.geometry?.materials = [borderMaterial]
+                    }
                 } else {
                     node.geometry?.firstMaterial?.diffuse.contents = UIColor.clear
+                    
+                    // Diğer ülkelerin kenarlarını gizle
+                    if let borderNode = sceneView.scene?.rootNode.childNode(withName: countryName ?? "", recursively: true) {
+                        borderNode.geometry?.firstMaterial?.transparency = 0
+                    }
                 }
             }
         }
@@ -241,7 +390,4 @@ extension SCNGeometry {
     }
 }
 
-/* struct Globe3DView_Previews: PreviewProvider {
-    static var previews: some View {
-        Globe3DView(
-            geoJson: GeoJson(type: "MultiPolygon", features: []), highlightedCountry: "Turkey"    )                     }}*/
+
