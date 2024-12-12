@@ -10,9 +10,22 @@
 		99F354902D011F180073234E /* Globle.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Globle.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		41DA24C72D0B372A005D1188 /* Exceptions for "Globle" folder in "Globle" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 99F3548F2D011F180073234E /* Globle */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		99F354922D011F180073234E /* Globle */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				41DA24C72D0B372A005D1188 /* Exceptions for "Globle" folder in "Globle" target */,
+			);
 			path = Globle;
 			sourceTree = "<group>";
 		};
