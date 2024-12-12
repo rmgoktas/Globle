@@ -49,8 +49,10 @@ struct Globe3DView: UIViewRepresentable {
 
         for feature in geoJson.features {
             if let polygons = feature.geometry.coordinates.polygon {
+                addCountryLabel(for: feature, to: countriesNode)
                 addPolygons(polygons, to: countriesNode, for: feature)
             } else if let multiPolygons = feature.geometry.coordinates.multiPolygon {
+                addCountryLabel(for: feature, to: countriesNode)
                 for polygons in multiPolygons {
                     addPolygons(polygons, to: countriesNode, for: feature)
                 }
@@ -58,6 +60,75 @@ struct Globe3DView: UIViewRepresentable {
         }
 
         globeNode.addChildNode(countriesNode)
+    }
+
+    private func addCountryLabel(for feature: GeoJsonFeature, to node: SCNNode) {
+        guard let countryName = feature.countryName,
+              let center = calculateCountryCenter(for: feature) else {
+            return
+        }
+
+        let textGeometry = SCNText(string: countryName, extrusionDepth: 0)
+        textGeometry.font = UIFont.systemFont(ofSize: 0.1) // Reduced font size
+        textGeometry.flatness = 0.1
+
+        let textNode = SCNNode(geometry: textGeometry)
+        textNode.scale = SCNVector3(0.005, 0.005, 0.005) // Adjusted scale
+        textNode.position = center
+
+        // Calculate the direction from the globe's center to the text
+        let direction = SCNVector3(center.x, center.y, center.z)
+        let normalizedDirection = normalize(direction)
+
+        // Move the text slightly above the surface of the globe
+        let offsetDistance: Float = 0.02
+        textNode.position = SCNVector3(
+            center.x + normalizedDirection.x * offsetDistance,
+            center.y + normalizedDirection.y * offsetDistance,
+            center.z + normalizedDirection.z * offsetDistance
+        )
+
+        // Rotate the text to face outward from the globe's center
+        textNode.eulerAngles = SCNVector3(
+            Float.pi / 2 - acos(normalizedDirection.y),
+            atan2(normalizedDirection.x, normalizedDirection.z),
+            0
+        )
+
+        node.addChildNode(textNode)
+    }
+
+    private func calculateCountryCenter(for feature: GeoJsonFeature) -> SCNVector3? {
+        var totalLat: Double = 0
+        var totalLon: Double = 0
+        var count: Int = 0
+
+        if let polygons = feature.geometry.coordinates.polygon {
+            for polygon in polygons {
+                for coord in polygon {
+                    totalLat += coord[1]
+                    totalLon += coord[0]
+                    count += 1
+                }
+            }
+        } else if let multiPolygons = feature.geometry.coordinates.multiPolygon {
+            for polygons in multiPolygons {
+                for polygon in polygons {
+                    for coord in polygon {
+                        totalLat += coord[1]
+                        totalLon += coord[0]
+                        count += 1
+                    }
+                }
+            }
+        }
+
+        guard count > 0 else { return nil }
+
+        let avgLat = totalLat / Double(count)
+        let avgLon = totalLon / Double(count)
+
+        return projectToSphere(latitude: avgLat, longitude: avgLon)
     }
 
     private func addPolygons(_ polygons: [[[Double]]], to node: SCNNode, for feature: GeoJsonFeature) {
@@ -69,32 +140,12 @@ struct Globe3DView: UIViewRepresentable {
 
             guard points.count > 2 else { continue }
 
-            // Create fill geometry first (will be rendered behind the border)
-            if let fillGeometry = createFillGeometry(from: points) {
-                let fillMaterial = SCNMaterial()
-                fillMaterial.diffuse.contents = UIColor.clear
-                fillMaterial.isDoubleSided = true
-                fillMaterial.cullMode = .back
-                // Add ambient occlusion to improve depth perception
-                fillMaterial.ambient.contents = UIColor.black
-                fillMaterial.ambient.intensity = 0.5
-                fillGeometry.materials = [fillMaterial]
-
-                let fillNode = SCNNode(geometry: fillGeometry)
-                fillNode.name = "\(feature.countryName ?? "")-fill"
-                
-                // Add a slight offset to prevent z-fighting
-                fillNode.renderingOrder = 1
-                node.addChildNode(fillNode)
-            }
-
-            // Create thicker border geometry with better blending
+            // Create border geometry
             let borderGeometry = createBorderGeometry(from: points)
             let borderMaterial = SCNMaterial()
-            borderMaterial.diffuse.contents = UIColor.red.withAlphaComponent(0.3) // Semi-transparent border
+            borderMaterial.diffuse.contents = UIColor.red.withAlphaComponent(0.3)
             borderMaterial.isDoubleSided = true
             borderMaterial.transparency = 0.7
-            // Enable smooth blending
             borderMaterial.blendMode = .alpha
             borderMaterial.writesToDepthBuffer = true
             borderMaterial.readsFromDepthBuffer = true
@@ -102,7 +153,6 @@ struct Globe3DView: UIViewRepresentable {
 
             let borderNode = SCNNode(geometry: borderGeometry)
             borderNode.name = feature.countryName
-            // Render borders on top of fill
             borderNode.renderingOrder = 2
             node.addChildNode(borderNode)
         }
@@ -345,33 +395,23 @@ struct Globe3DView: UIViewRepresentable {
 
     private func updateHighlightedCountry(in sceneView: SCNView) {
         sceneView.scene?.rootNode.enumerateChildNodes { (node, _) in
-            if node.name?.contains("-fill") == true {
-                let countryName = node.name?.replacingOccurrences(of: "-fill", with: "")
+            if let countryName = node.name {
                 if countryName == highlightedCountry {
-                    // Ana dolgu rengi
-                    node.geometry?.firstMaterial?.diffuse.contents = UIColor.red
-                    node.geometry?.firstMaterial?.transparency = 0.8
-                    
-                    // Kenar çizgileri için material ayarları
-                    let borderMaterial = SCNMaterial()
-                    borderMaterial.diffuse.contents = UIColor.red
-                    borderMaterial.transparency = 0.9
-                    borderMaterial.blendMode = .alpha
-                    
-                    // Kenar node'unu bul ve güncelle
-                    if let borderNode = sceneView.scene?.rootNode.childNode(withName: countryName ?? "", recursively: true) {
-                        borderNode.geometry?.materials = [borderMaterial]
-                    }
+                    // Highlight the border
+                    node.geometry?.firstMaterial?.diffuse.contents = UIColor.yellow
+                    node.geometry?.firstMaterial?.transparency = 1
                 } else {
-                    node.geometry?.firstMaterial?.diffuse.contents = UIColor.clear
-                    
-                    // Diğer ülkelerin kenarlarını gizle
-                    if let borderNode = sceneView.scene?.rootNode.childNode(withName: countryName ?? "", recursively: true) {
-                        borderNode.geometry?.firstMaterial?.transparency = 0
-                    }
+                    // Reset to default border style
+                    node.geometry?.firstMaterial?.diffuse.contents = UIColor.white.withAlphaComponent(0.3)
+                    node.geometry?.firstMaterial?.transparency = 0
                 }
             }
         }
+    }
+    
+    private func normalize(_ vector: SCNVector3) -> SCNVector3 {
+        let length = sqrt(vector.x * vector.x + vector.y * vector.y + vector.z * vector.z)
+        return SCNVector3(vector.x / length, vector.y / length, vector.z / length)
     }
 }
 
@@ -389,5 +429,4 @@ extension SCNGeometry {
         return SCNGeometry(sources: [source], elements: [element])
     }
 }
-
 
