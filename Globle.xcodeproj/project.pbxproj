@@ -11,7 +11,7 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		41DA24C72D0B372A005D1188 /* Exceptions for "Globle" folder in "Globle" target */ = {
+		99F3550E2D0B3B1C0073234E /* Exceptions for "Globle" folder in "Globle" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
@@ -24,7 +24,7 @@
 		99F354922D011F180073234E /* Globle */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				41DA24C72D0B372A005D1188 /* Exceptions for "Globle" folder in "Globle" target */,
+				99F3550E2D0B3B1C0073234E /* Exceptions for "Globle" folder in "Globle" target */,
 			);
 			path = Globle;
 			sourceTree = "<group>";
@@ -190,6 +190,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
+				INFOPLIST_FILE = "";
 				IPHONEOS_DEPLOYMENT_TARGET = 18.1;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
@@ -247,6 +248,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
+				INFOPLIST_FILE = "";
 				IPHONEOS_DEPLOYMENT_TARGET = 18.1;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = NO;
