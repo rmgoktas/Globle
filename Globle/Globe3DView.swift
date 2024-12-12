@@ -161,7 +161,7 @@ struct Globe3DView: UIViewRepresentable {
     private func createFillGeometry(from points: [SCNVector3]) -> SCNGeometry? {
         guard points.count >= 3 else { return nil }
         
-        // Merkez noktayı hesapla
+        // Calculate center point
         var centerX: Float = 0, centerY: Float = 0, centerZ: Float = 0
         for point in points {
             centerX += point.x
@@ -175,7 +175,7 @@ struct Globe3DView: UIViewRepresentable {
             centerZ / count
         )
         
-        // Merkezi küre yüzeyine yansıt
+        // Project centroid to sphere surface
         let length = sqrt(centroid.x * centroid.x + centroid.y * centroid.y + centroid.z * centroid.z)
         let radius: Float = 5.02
         let normalizedCentroid = SCNVector3(
@@ -188,7 +188,7 @@ struct Globe3DView: UIViewRepresentable {
         var normals: [SCNVector3] = []
         var indices: [Int32] = []
         
-        // Recursive subdivision için yardımcı fonksiyon
+        // Helper function for recursive subdivision
         func subdivideTriangle(_ v1: SCNVector3, _ v2: SCNVector3, _ v3: SCNVector3, depth: Int) {
             if depth == 0 {
                 let index = Int32(vertices.count)
@@ -209,7 +209,7 @@ struct Globe3DView: UIViewRepresentable {
                 return
             }
             
-            // Kenar orta noktalarını hesapla ve küre yüzeyine yansıt
+            // Calculate edge midpoints and project to sphere surface
             func midpoint(_ p1: SCNVector3, _ p2: SCNVector3) -> SCNVector3 {
                 let mid = SCNVector3(
                     (p1.x + p2.x) / 2,
@@ -234,10 +234,10 @@ struct Globe3DView: UIViewRepresentable {
             subdivideTriangle(v12, v23, v31, depth: depth - 1)
         }
         
-        // Poligonu üçgenlere böl
+        // Divide polygon into triangles
         let densePoints = subdivideLargePolygon(points)
         for i in 1..<(densePoints.count - 1) {
-            let maxDepth = 2 // Recursive subdivision derinliği
+            let maxDepth = 2 // Recursive subdivision depth
             subdivideTriangle(normalizedCentroid, densePoints[i], densePoints[i + 1], depth: maxDepth)
         }
         
@@ -258,12 +258,12 @@ struct Globe3DView: UIViewRepresentable {
             
             result.append(p1)
             
-            // İki nokta arasındaki büyük daire mesafesini hesapla
+            // Calculate great circle distance between two points
             let dot = (p1.x * p2.x + p1.y * p2.y + p1.z * p2.z) / (radius * radius)
             let angle = acos(min(1, max(-1, dot)))
             
-            if angle > 0.05 { // Daha küçük açı eşiği
-                let subdivisions = Int(angle * 40) // Daha fazla alt bölüm
+            if angle > 0.05 { // Smaller angle threshold
+                let subdivisions = Int(angle * 40) // More subdivisions
                 
                 for j in 1..<subdivisions {
                     let t = Float(j) / Float(subdivisions)
@@ -403,7 +403,7 @@ struct Globe3DView: UIViewRepresentable {
                 } else {
                     // Reset to default border style
                     node.geometry?.firstMaterial?.diffuse.contents = UIColor.white.withAlphaComponent(0.3)
-                    node.geometry?.firstMaterial?.transparency = 0
+                    node.geometry?.firstMaterial?.transparency = 0.7
                 }
             }
         }
@@ -412,6 +412,28 @@ struct Globe3DView: UIViewRepresentable {
     private func normalize(_ vector: SCNVector3) -> SCNVector3 {
         let length = sqrt(vector.x * vector.x + vector.y * vector.y + vector.z * vector.z)
         return SCNVector3(vector.x / length, vector.y / length, vector.z / length)
+    }
+    
+    private func focusOnCountry(_ countryName: String, in sceneView: SCNView) {
+        guard let feature = geoJson.features.first(where: { $0.countryName?.trimmed().capitalized == countryName.trimmed().capitalized }),
+              let center = calculateCountryCenter(for: feature) else {
+            return
+        }
+
+        let cameraNode = sceneView.pointOfView!
+        let globeNode = sceneView.scene!.rootNode.childNodes.first!
+
+        // Calculate the rotation needed to face the country
+        let currentPosition = cameraNode.position
+        let directionToCountry = SCNVector3(center.x - currentPosition.x, center.y - currentPosition.y, center.z - currentPosition.z)
+        let rotationAction = SCNAction.rotateTo(x: CGFloat(-asin(directionToCountry.y / 15)),
+                                                y: CGFloat(atan2(directionToCountry.x, directionToCountry.z)),
+                                                z: 0,
+                                                duration: 1,
+                                                usesShortestUnitArc: true)
+
+        // Rotate the globe instead of the camera
+        globeNode.runAction(rotationAction)
     }
 }
 
@@ -430,3 +452,8 @@ extension SCNGeometry {
     }
 }
 
+extension String {
+    func mytrimmed() -> String {
+        return self.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
