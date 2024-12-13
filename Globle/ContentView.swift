@@ -120,6 +120,20 @@ struct ContentView: View {
         }
     }
     
+    private func performSearch() {
+        highlightedCountry = searchText.trimmed().capitalized
+        attempts += 1
+        if highlightedCountry == secretCountry {
+            gameWon = true
+            showingAlert = true
+        }
+        calculateDistance()
+        updatePredictions()
+        searchText = "" // TextField'i sıfırla
+        print("Search triggered for: \(highlightedCountry)")
+    }
+
+    
     private func loadGeoJson() {
         if let url = Bundle.main.url(forResource: "geo", withExtension: "geojson") {
             do {
@@ -139,18 +153,6 @@ struct ContentView: View {
             secretCountry = randomCountry.trimmed().capitalized
             print("Secret country: \(secretCountry)")
         }
-    }
-    
-    private func performSearch() {
-        highlightedCountry = searchText.trimmed().capitalized
-        attempts += 1
-        if highlightedCountry == secretCountry {
-            gameWon = true
-            showingAlert = true
-        }
-        calculateDistance()
-        updatePredictions()
-        print("Search triggered for: \(highlightedCountry)")
     }
     
     private func calculateDistance() {
